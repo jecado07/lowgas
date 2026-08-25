@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gasolineras Baratas</title>
+  <!-- React, ReactDOM y Babel desde CDN -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body style="margin: 0; background-color: #0A0A12;">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState } = React;
+
+    const FUEL_TYPES = [
+      { key: "Precio Gasolina 95 E5",  label: "Gasolina 95"     },
+      { key: "Precio Gasoleo A",       label: "Gasóleo A"       },
+      { key: "Precio Gasolina 98 E5",  label: "Gasolina 98"     },
+      { key: "Precio Gasoleo Premium", label: "Gasóleo Premium" },
+      { key: "Precio Gases licuados del petroleo", label: "GLP" },
+    ];
+
+    const CP_MAP = {
+      "07700": "MAHON",
+      "07701": "MAHON",
+      "07702": "MAHON",
+      "07703": "MAHON",
+      "07760": "CIUTADELLA",
+    };
+
+    const BG = "#0A0A12", CARD = "#13131D", BORDER = "#22223A";
+    const AMBER = "#F5B731", MUTED = "#44446A", TEXT = "#C8D0E0";
+    const GREEN = "#00E676", RED = "#FF5252";
+
+    const normalizePrice = (v) => {
+      if (v === null || v === undefined || v === "") return null;
+      if (typeof v === "number") return isNaN(v) ? null : v;
+      if (typeof v === "string") {
+        const n = parseFloat(v.replace(/[^\d,.-]/g, "").replace(",", "."));
+        return isNaN(n) ? null : n;
+      }
+      return null;
+    };
+
+    const fmtP = (n) => {
+      const v = normalizePrice(n);
+      return v !== null ? v.toFixed(3) : "—";
+    };
+
+    const rankColor = (i, total) => {
+      if (i === 0) return GREEN;
+      if (i < Math.min(3, Math.ceil(total * 0.3))) return AMBER;
+      if (i === total - 1 && total > 2) return RED;
+      return "#8890A8";
+    };
+
+    // Abre Google Maps directamente con las coordenadas o nombre + dirección
+    const abrirGoogleMaps = (s) => {
+      let googleUrl = "";
+      if (s.lat && s.lng) {
+        googleUrl = `https://www.google.com/maps/search/?api=1&query=${s.lat},${s.lng}`;
+      } else {
+        const query = encodeURIComponent([s.nombre, s.direccion, "España"].filter(Boolean).join(", "));
+        googleUrl = `https://www.google.com/maps/search/?api=1&query=${query}`;
+      }
+      window.open(googleUrl, "_blank");
+    };
+
+    async function buscarGasolineras(cp, combustibleKey) {
+      const url = "https://sedeaplicaciones.minetur.gob.es/ServiciosRESTCarburantes/PreciosCarburantes/EstacionesTerrestres/";
+      
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+
+      const lista = data.ListaEESSPrecio || [];
+      const cpLimpio = cp.replace(/^0+/, "");
+      const municipioAlias = CP_MAP[cp];
+
+      let filtradas = lista.filter(g => {
+        const cpEstacion = (g["C.P."] || "").toString().replace(/^0+/, "");
+        return cpEstacion === cpLimpio;
+      });
+
+      if (filtradas.length === 0) {
+        filtradas = lista.filter(g => {
+          const mun = (g["Municipio"] || "").toUpperCase();
+          return municipioAlias && mun.includes(municipioAlias);
+        });
+      }
+
+      if (filtradas.length === 0 && cp.length === 5) {
+        const prefijo4 = cp.substring(0, 4);
+        filtradas = lista.filter(g => (g["C.P."] || "").toString().startsWith(prefijo4));
+      }
+
+      if (filtradas.length === 0) {
+        return { error: `Sin datos para el CP ${cp}` };
+      }
+
+      const municipio = filtradas[0]?.["Municipio"] || municipioAlias || "";
+      const provincia = filtradas[0]?.["Provincia"] || "";
+
+      const gasolineras = filtradas
+        .map(g => {
+          const pRaw = g[combustibleKey];
+          const precio = normalizePrice(pRaw);
+          
+          const latStr = (g["Latitud"] || "").replace(",", ".");
+          const lngStr = (g["Longitud (WGS84)"] || "").replace(",", ".");
+          const lat = parseFloat(latStr);
+          const lng = parseFloat(lngStr);
+
+          return {
+            nombre: g["Razón social"] || g["Rótulo"] || "Gasolinera",
+            direccion: g["Dirección"] || "",
+            horario: g["Horario"] || null,
+            precio: precio,
+            lat: isNaN(lat) ? null : lat,
+            lng: isNaN(lng) ? null : lng,
+          };
+        })
+        .filter(g => g.precio !== null)
+        .sort((a, b) => a.precio - b.precio);
+
+      if (gasolineras.length === 0) {
+        return { error: `No hay estaciones con este tipo de combustible en la zona de ${cp}` };
+      }
+
+      return { municipio, provincia, gasolineras };
+    }
+
+    function StatBox({ label, value, color }) {
+      return (
+        <div style={{ background: BG, border: `1px solid ${BORDER}`, borderRadius: 12, padding: "12px 8px", textAlign: "center" }}>
+          <div style={{ fontSize: 9, color: MUTED, fontWeight: 700, letterSpacing: "0.06em", marginBottom: 5 }}>{label}</div>
+          <div style={{ fontFamily: "'Courier New',monospace", fontSize: 20, fontWeight: 900, color, textShadow: `0 0 10px ${color}44` }}>
+            {value}
+          </div>
+          <div style={{ fontSize: 9, color: MUTED, marginTop: 2 }}>€/L</div>
+        </div>
+      );
+    }
+
+    function StationCard({ s, i, total, minP }) {
+      const col       = rankColor(i, total);
+      const precio    = s.precio;
+      const savings   = (i > 0 && minP != null) ? ((precio - minP) * 50).toFixed(2) : null;
+      const isFirst   = i === 0;
+      const horarioOk = s.horario && s.horario !== "null" && s.horario !== null;
+
+      return (
+        <div style={{
+          background: isFirst ? "#001309" : CARD,
+          border: `1px solid ${isFirst ? "#00E67635" : BORDER}`,
+          borderRadius: 14,
+          padding: "14px 16px",
+        }}>
+          <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+
+            <div style={{
+              width: 28, height: 28, borderRadius: "50%", flexShrink: 0, marginTop: 2,
+              background: isFirst ? GREEN : i < 3 ? AMBER : BORDER,
+              color: i < 3 ? "#0A0A12" : MUTED,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              fontWeight: 800, fontSize: 12,
+            }}>{i + 1}</div>
+
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 700, color: "#F0F0F8", fontSize: 14, marginBottom: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {s.nombre || "Sin nombre"}
+              </div>
+              <div style={{ color: MUTED, fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                📍 {s.direccion || "—"}
+              </div>
+              {horarioOk && (
+                <div style={{ color: "#8890A8", fontSize: 11, marginTop: 2 }}>🕐 {s.horario}</div>
+              )}
+              {savings && (
+                <div style={{ fontSize: 11, color: "#FF7070", marginTop: 4 }}>
+                  +{savings} € más por llenar 50 L
+                </div>
+              )}
+
+              <button
+                onClick={() => abrirGoogleMaps(s)}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: isFirst ? 6 : 4,
+                  marginTop: 10,
+                  padding: isFirst ? "8px 14px" : "6px 12px",
+                  borderRadius: isFirst ? 10 : 8,
+                  background: isFirst ? "#0D2318" : "#1A1A2E",
+                  border: `1px solid ${isFirst ? "#00E67645" : "#333355"}`,
+                  color: isFirst ? GREEN : "#A0A8C0",
+                  fontWeight: 700,
+                  fontSize: isFirst ? 13 : 12,
+                  cursor: "pointer"
+                }}
+              >
+                📍 Abrir en Google Maps
+              </button>
+            </div>
+
+            <div style={{ textAlign: "right", flexShrink: 0 }}>
+              <div style={{
+                fontFamily: "'Courier New',monospace",
+                fontSize: 26, fontWeight: 900,
+                color: col, textShadow: `0 0 12px ${col}55`, lineHeight: 1,
+              }}>
+                {fmtP(precio)}
+              </div>
+              <div style={{ fontSize: 10, color: MUTED, marginTop: 3 }}>€/litro</div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    function App() {
+      const [cp,       setCp]      = useState("");
+      const [fuel,     setFuel]    = useState("Precio Gasolina 95 E5");
+      const [result,   setResult]  = useState(null);
+      const [loading,  setLoading] = useState(false);
+      const [error,    setError]   = useState("");
+      const [searched, setSearched]= useState(false);
+
+      const search = async () => {
+        if (!/^\d{5}$/.test(cp)) { setError("Introduce un código postal de 5 dígitos."); return; }
+        setLoading(true); setError(""); setResult(null); setSearched(true);
+        try {
+          const data = await buscarGasolineras(cp, fuel);
+          if (data.error) setError(data.error);
+          else setResult(data);
+        } catch (e) {
+          setError("No se pudieron obtener los datos. Inténtalo de nuevo.");
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      const stations  = result?.gasolineras || [];
+      const fuelLabel = FUEL_TYPES.find(f => f.key === fuel)?.label || fuel;
+      const prices    = stations.map(s => s.precio).filter(p => typeof p === "number" && !isNaN(p));
+      const minP      = prices.length ? prices[0]                                          : null;
+      const maxP      = prices.length ? prices[prices.length - 1]                         : null;
+      const avgP      = prices.length ? prices.reduce((a, b) => a + b, 0) / prices.length : null;
+
+      return (
+        <div style={{ minHeight: "100vh", background: BG, color: TEXT, fontFamily: "system-ui,-apple-system,sans-serif" }}>
+
+          <div style={{ borderBottom: `1px solid ${BORDER}`, padding: "24px 20px 20px", textAlign: "center" }}>
+            <div style={{ fontSize: 38, marginBottom: 6 }}>⛽</div>
+            <h1 style={{ margin: "0 0 4px", fontSize: 22, fontWeight: 800, color: "#F0F0F8", letterSpacing: "-0.02em" }}>
+              Gasolineras Baratas
+            </h1>
+            <p style={{ margin: 0, color: MUTED, fontSize: 12 }}>Precios en tiempo real · Solo España</p>
+          </div>
+
+          <div style={{ maxWidth: 560, margin: "0 auto", padding: "20px 16px 52px" }}>
+
+            <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 16, padding: "18px", marginBottom: 16 }}>
+              <div style={{ display: "flex", gap: 10, marginBottom: 14 }}>
+                <input
+                  type="text" inputMode="numeric" maxLength={5}
+                  value={cp}
+                  onChange={e => { setCp(e.target.value.replace(/\D/g, "")); setError(""); }}
+                  onKeyDown={e => e.key === "Enter" && !loading && search()}
+                  placeholder="Código postal · 07700"
+                  style={{
+                    flex: 1, padding: "12px 14px", borderRadius: 10,
+                    border: `1.5px solid ${cp.length === 5 ? AMBER + "90" : BORDER}`,
+                    background: BG, color: "#F0F0F8",
+                    fontSize: 18, fontWeight: 700,
+                    fontFamily: "'Courier New',Courier,monospace", letterSpacing: "0.12em",
+                    outline: "none", width: "100%", boxSizing: "border-box",
+                  }}
+                />
+                <button
+                  onClick={search} disabled={loading}
+                  style={{
+                    padding: "12px 18px", borderRadius: 10, border: "none",
+                    background: loading ? BORDER : AMBER,
+                    color: loading ? MUTED : "#0A0A12",
+                    fontWeight: 800, fontSize: 14,
+                    cursor: loading ? "not-allowed" : "pointer", flexShrink: 0,
+                  }}
+                >
+                  {loading ? "…" : "Buscar"}
+                </button>
+              </div>
+
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
+                {FUEL_TYPES.map(f => {
+                  const on = fuel === f.key;
+                  return (
+                    <button key={f.key} onClick={() => setFuel(f.key)} style={{
+                      padding: "7px 12px", borderRadius: 8, cursor: "pointer", fontSize: 12, fontWeight: 700,
+                      border: `1.5px solid ${on ? AMBER : BORDER}`,
+                      background: on ? AMBER + "20" : "transparent",
+                      color: on ? AMBER : MUTED,
+                    }}>
+                      {f.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {error && (
+              <div style={{ background: "#FF525218", border: "1px solid #FF525240", borderRadius: 12, padding: "12px 16px", marginBottom: 14, color: "#FF8A8A", fontSize: 13 }}>
+                ⚠️ {error}
+              </div>
+            )}
+
+            {loading && (
+              <div style={{ textAlign: "center", padding: "52px 0", color: MUTED }}>
+                <div style={{ fontSize: 36, marginBottom: 14 }}>🔍</div>
+                <p style={{ margin: "0 0 6px", fontSize: 15, color: TEXT }}>Buscando precios en {cp}…</p>
+                <p style={{ margin: 0, fontSize: 12 }}>Consultando fuentes oficiales en tiempo real</p>
+              </div>
+            )}
+
+            {!loading && searched && !error && stations.length === 0 && !result && (
+              <div style={{ textAlign: "center", padding: "52px 0", color: MUTED }}>
+                <div style={{ fontSize: 36, marginBottom: 12 }}>🤷</div>
+                <p style={{ margin: "0 0 4px", fontSize: 15, color: TEXT }}>No se encontraron gasolineras</p>
+                <p style={{ margin: 0, fontSize: 12 }}>Prueba con otro combustible o código postal</p>
+              </div>
+            )}
+
+            {!loading && stations.length > 0 && (
+              <>
+                <p style={{ margin: "0 0 12px", color: MUTED, fontSize: 13 }}>
+                  <span style={{ color: AMBER, fontWeight: 700 }}>{result?.municipio || cp}</span>
+                  {result?.provincia ? <span style={{ color: "#55557A" }}> · {result.provincia}</span> : null}
+                  {" · "}{stations.length} gasolinera{stations.length !== 1 ? "s" : ""}
+                  {" · "}<strong style={{ color: TEXT }}>{fuelLabel}</strong>
+                </p>
+
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 18 }}>
+                  <StatBox label="MÁS BARATO"   value={fmtP(minP)} color={GREEN} />
+                  <StatBox label="PRECIO MEDIO" value={fmtP(avgP)} color={TEXT}  />
+                  <StatBox label="MÁS CARO"     value={fmtP(maxP)} color={RED}   />
+                </div>
+
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {stations.map((s, i) => (
+                    <StationCard
+                      key={i}
+                      s={s}
+                      i={i}
+                      total={stations.length}
+                      minP={minP}
+                    />
+                  ))}
+                </div>
+
+                <button
+                  onClick={search}
+                  style={{
+                    marginTop: 20, width: "100%", padding: "12px",
+                    borderRadius: 10, border: `1px solid ${BORDER}`,
+                    background: "transparent", color: MUTED,
+                    fontWeight: 600, fontSize: 13, cursor: "pointer",
+                  }}
+                >
+                  🔄 Actualizar precios
+                </button>
+              </>
+            )}
+
+            <p style={{ marginTop: 32, textAlign: "center", color: "#1E1E30", fontSize: 10 }}>
+              Datos extraídos del Geoportal del Ministerio para la Transición Ecológica · Precios con IVA · Solo España
+            </p>
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a30d45f5483cf777',t:'MTc4NzY4ODk3Mw=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+</html>
+<script async src="/.netlify/scripts/hud?variant=public" data-nf-variant="public" data-netlify-site-id="b7ce405a-e3cf-49a1-8615-bd2075903b88" data-app-host="app.netlify.com"></script>
