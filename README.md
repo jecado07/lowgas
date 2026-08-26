@@ -1,4 +1,4 @@
-# 🛒 gasbarata
+# 🛒 lowgas
 
 [![Live](https://img.shields.io/badge/Live-Netlify-00C7B7?style=flat&logo=netlify)](https://lowgas.netlify.app/) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 
