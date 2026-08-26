@@ -1,12 +1,12 @@
 # 🛒 gasbarata
 
-[![Live](https://img.shields.io/badge/Live-Netlify-00C7B7?style=flat&logo=netlify)](https://gasbarata.netlify.app) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+[![Live](https://img.shields.io/badge/Live-Netlify-00C7B7?style=flat&logo=netlify)](https://lowgas.netlify.app/) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 
 > Herramienta web para encontrar gas barato
 
 ## 🚀 Demo en Vivo
 
-🌐 **[https://gasbarata.netlify.app](https://gasbarata.netlify.app)**
+🌐 **[https://lowgas.netlify.app/](https://lowgas.netlify.app/)**
 
 ## ✨ Características
 
